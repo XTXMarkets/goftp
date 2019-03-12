@@ -37,6 +37,9 @@ type RawConn interface {
 
 // Represents a single connection to an FTP server.
 type persistentConn struct {
+	// Dialer for creating data connections
+	dialer Dialer
+
 	// control socket
 	controlConn net.Conn
 
@@ -406,7 +409,7 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 		}
 
 		pconn.debug("opening data connection to %s", host)
-		dc, netErr := net.DialTimeout("tcp", host, pconn.config.Timeout)
+		dc, netErr := pconn.config.dialer.Dial("tcp", host)
 
 		if netErr != nil {
 			var isTemporary bool
