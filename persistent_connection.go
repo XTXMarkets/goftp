@@ -409,7 +409,7 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 		}
 
 		pconn.debug("opening data connection to %s", host)
-		dc, netErr := pconn.config.dialer.Dial("tcp", host)
+		dc, netErr := pconn.dialer.Dial("tcp", host)
 
 		if netErr != nil {
 			var isTemporary bool

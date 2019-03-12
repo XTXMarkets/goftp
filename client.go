@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"sync"
 	"time"
 )
@@ -201,12 +200,6 @@ func newClient(config Config, hosts []string) *Client {
 		config.ActiveListenAddr = ":0"
 	}
 
-	if config.dialer == nil {
-		config.dialer = &net.Dialer{
-			Timeout: config.Timeout,
-		}
-	}
-
 	return &Client{
 		config:          config,
 		freeConnCh:      make(chan *persistentConn, len(hosts)*config.ConnectionsPerHost),
@@ -366,10 +359,18 @@ func (c *Client) OpenRawConn() (RawConn, error) {
 
 // Open and set up a control connection.
 func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err error) {
+	dialer := c.config.dialer
+	if dialer == nil {
+		dialer = &net.Dialer{
+			Timeout: c.config.Timeout,
+		}
+	}
+
 	pconn = &persistentConn{
 		idx:              idx,
 		features:         make(map[string]string),
 		config:           c.config,
+		dialer:           dialer,
 		t0:               c.t0,
 		currentType:      "A",
 		host:             host,
@@ -379,11 +380,17 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 	var conn net.Conn
 
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
+		if c.config.dialer != nil {
+			return nil, errors.New("Custom dialers with TLS are not supported")
+		}
 		pconn.debug("opening TLS control connection to %s", host)
-		conn, err = c.dialTls(host, pconn.config.TLSConfig)
+		dialer := &net.Dialer{
+			Timeout: c.config.Timeout,
+		}
+		conn, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
 	} else {
 		pconn.debug("opening control connection to %s", host)
-		conn, err = c.config.dialer.Dial("tcp", host)
+		conn, err = dialer.Dial("tcp", host)
 	}
 
 	var (
@@ -445,68 +452,4 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 Error:
 	pconn.close()
 	return nil, err
-}
-
-type timeoutError struct{}
-
-func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
-func (timeoutError) Timeout() bool   { return true }
-func (timeoutError) Temporary() bool { return true }
-
-func (c *Client) dialTls(addr string, config *tls.Config) (net.Conn, error) {
-	// We want the Timeout and Deadline values from dialer to cover the
-	// whole process: TCP connection and TLS handshake. This means that we
-	// also need to start our own timers now.
-	timeout := c.config.Timeout
-
-	var errChannel chan error
-
-	if timeout != 0 {
-		errChannel = make(chan error, 2)
-		time.AfterFunc(timeout, func() {
-			errChannel <- timeoutError{}
-		})
-	}
-
-	rawConn, err := c.config.dialer.Dial("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-
-	colonPos := strings.LastIndex(addr, ":")
-	if colonPos == -1 {
-		colonPos = len(addr)
-	}
-	hostname := addr[:colonPos]
-
-	if config == nil {
-		config = &tls.Config{}
-	}
-	// If no ServerName is set, infer the ServerName
-	// from the hostname we're connecting to.
-	if config.ServerName == "" {
-		// Make a copy to avoid polluting argument or default.
-		c := config.Clone()
-		c.ServerName = hostname
-		config = c
-	}
-
-	conn := tls.Client(rawConn, config)
-
-	if timeout == 0 {
-		err = conn.Handshake()
-	} else {
-		go func() {
-			errChannel <- conn.Handshake()
-		}()
-
-		err = <-errChannel
-	}
-
-	if err != nil {
-		rawConn.Close()
-		return nil, err
-	}
-
-	return conn, err
 }
