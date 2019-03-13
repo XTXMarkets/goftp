@@ -149,11 +149,11 @@ type Config struct {
 	// hung connections.
 	DisableEPSV bool
 
+	// Dialer, defaults to net.Dialer
+	Dialer Dialer
+
 	// For testing convenience.
 	stubResponses map[string]stubResponse
-
-	// Dialer, defaults to net.Dialer
-	dialer Dialer
 }
 
 // Client maintains a connection pool to the FTP server(s), so you typically only
@@ -359,7 +359,7 @@ func (c *Client) OpenRawConn() (RawConn, error) {
 
 // Open and set up a control connection.
 func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err error) {
-	dialer := c.config.dialer
+	dialer := c.config.Dialer
 	if dialer == nil {
 		dialer = &net.Dialer{
 			Timeout: c.config.Timeout,
@@ -380,7 +380,7 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 	var conn net.Conn
 
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
-		if c.config.dialer != nil {
+		if c.config.Dialer != nil {
 			return nil, errors.New("Custom dialers with TLS are not supported")
 		}
 		pconn.debug("opening TLS control connection to %s", host)
