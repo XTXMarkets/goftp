@@ -151,6 +151,9 @@ type Config struct {
 
 	// For testing convenience.
 	stubResponses map[string]stubResponse
+
+	// Dialer, defaults to net.Dialer
+	dialer Dialer
 }
 
 // Client maintains a connection pool to the FTP server(s), so you typically only
@@ -173,7 +176,6 @@ type Client struct {
 // Construct and return a new client Conn, setting default config
 // values as necessary.
 func newClient(config Config, hosts []string) *Client {
-
 	if config.ConnectionsPerHost <= 0 {
 		config.ConnectionsPerHost = 5
 	}
@@ -357,10 +359,18 @@ func (c *Client) OpenRawConn() (RawConn, error) {
 
 // Open and set up a control connection.
 func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err error) {
+	dialer := c.config.dialer
+	if dialer == nil {
+		dialer = &net.Dialer{
+			Timeout: c.config.Timeout,
+		}
+	}
+
 	pconn = &persistentConn{
 		idx:              idx,
 		features:         make(map[string]string),
 		config:           c.config,
+		dialer:           dialer,
 		t0:               c.t0,
 		currentType:      "A",
 		host:             host,
@@ -370,6 +380,9 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 	var conn net.Conn
 
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
+		if c.config.dialer != nil {
+			return nil, errors.New("Custom dialers with TLS are not supported")
+		}
 		pconn.debug("opening TLS control connection to %s", host)
 		dialer := &net.Dialer{
 			Timeout: c.config.Timeout,
@@ -377,7 +390,7 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 		conn, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
 	} else {
 		pconn.debug("opening control connection to %s", host)
-		conn, err = net.DialTimeout("tcp", host, c.config.Timeout)
+		conn, err = dialer.Dial("tcp", host)
 	}
 
 	var (
