@@ -321,15 +321,27 @@ func (f *ftpFile) Sys() interface{} {
 	return f.raw
 }
 
-var lsRegex = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
+var (
+	lsRegex    = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
+	winLsRegex = regexp.MustCompile(`^\s*(\d{2}-\d{2}-\d{2}\s*\d{2}:\d{2}(?:PM|AM))\s*(<DIR>|\d+)\s*(\S+)$`)
+)
 
-// total 404456
-// drwxr-xr-x   8 goftp    20            272 Jul 28 05:03 git-ignored
 func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
 	if strings.HasPrefix(entry, "total ") {
 		return nil, nil
 	}
 
+	if lsRegex.MatchString(entry) {
+		return parseLinuxLIST(entry, loc, skipSelfParent)
+	} else if winLsRegex.MatchString(entry) {
+		return parseWinLIST(entry, loc)
+	}
+	return nil, fmt.Errorf("unexpected LIST format %v", entry)
+}
+
+// total 404456
+// drwxr-xr-x   8 goftp    20            272 Jul 28 05:03 git-ignored
+func parseLinuxLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
 	matches := lsRegex.FindStringSubmatch(entry)
 	if len(matches) == 0 {
 		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
@@ -392,6 +404,42 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 	}
 
 	return info, nil
+}
+
+// example entries:
+// 01-02-06  04:32PM       <DIR>          Abc
+// 01-02-06  07:44PM                 1234 test.txt
+func parseWinLIST(entry string, loc *time.Location) (os.FileInfo, error) {
+	matches := winLsRegex.FindStringSubmatch(entry)
+	if len(matches) == 0 {
+		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
+	}
+
+	mtime, err := time.ParseInLocation("01-02-06 03:04PM", matches[1], loc)
+	if err != nil {
+		return nil, err
+	}
+
+	fi := matches[2]
+	mode := os.ModePerm
+	var size uint64
+	if fi == "<DIR>" {
+		mode |= os.ModeDir
+	} else {
+		mode |= os.ModeSymlink
+		size, err = strconv.ParseUint(fi, 10, 64)
+		if err != nil {
+			return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's size: %s (%s)`, err, entry)}
+		}
+	}
+
+	return &ftpFile{
+		name:  filepath.Base(matches[3]),
+		mode:  mode,
+		mtime: mtime,
+		raw:   entry,
+		size:  int64(size),
+	}, nil
 }
 
 // an entry looks something like this:
