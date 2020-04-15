@@ -396,7 +396,7 @@ func parseUnixLIST(entry string, loc *time.Location, skipSelfParent bool) (os.Fi
 	}
 
 	info := &ftpFile{
-		name:  matches[8],
+		name:  filepath.Base(matches[8]),
 		mode:  mode,
 		mtime: mtime,
 		raw:   entry,
@@ -433,7 +433,7 @@ func parseWinLIST(entry string, loc *time.Location) (os.FileInfo, error) {
 	}
 
 	return &ftpFile{
-		name:  filepath.Base(matches[3]),
+		name:  matches[3],
 		mode:  mode,
 		mtime: mtime,
 		raw:   entry,
