@@ -322,8 +322,8 @@ func (f *ftpFile) Sys() interface{} {
 }
 
 var (
-	lsRegex    = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
-	winLsRegex = regexp.MustCompile(`^\s*(\d{2}-\d{2}-\d{2}\s*\d{2}:\d{2}(?:PM|AM))\s*(<DIR>|\d+)\s*(\S+)$`)
+	unixLsRegex = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
+	winLsRegex  = regexp.MustCompile(`^\s*(\d{2}-\d{2}-\d{2}\s*\d{2}:\d{2}(?:PM|AM))\s*(<DIR>|\d+)\s*(\S+)$`)
 )
 
 func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
@@ -331,18 +331,18 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 		return nil, nil
 	}
 
-	if lsRegex.MatchString(entry) {
-		return parseLinuxLIST(entry, loc, skipSelfParent)
+	if unixLsRegex.MatchString(entry) {
+		return parseUnixLIST(entry, loc, skipSelfParent)
 	} else if winLsRegex.MatchString(entry) {
 		return parseWinLIST(entry, loc)
 	}
-	return nil, fmt.Errorf("unexpected LIST format %v", entry)
+	return nil, ftpError{err: fmt.Errorf("unexpected LIST format %v", entry)}
 }
 
 // total 404456
 // drwxr-xr-x   8 goftp    20            272 Jul 28 05:03 git-ignored
-func parseLinuxLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
-	matches := lsRegex.FindStringSubmatch(entry)
+func parseUnixLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
+	matches := unixLsRegex.FindStringSubmatch(entry)
 	if len(matches) == 0 {
 		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
 	}
@@ -396,7 +396,7 @@ func parseLinuxLIST(entry string, loc *time.Location, skipSelfParent bool) (os.F
 	}
 
 	info := &ftpFile{
-		name:  filepath.Base(matches[8]),
+		name:  matches[8],
 		mode:  mode,
 		mtime: mtime,
 		raw:   entry,
@@ -426,7 +426,6 @@ func parseWinLIST(entry string, loc *time.Location) (os.FileInfo, error) {
 	if fi == "<DIR>" {
 		mode |= os.ModeDir
 	} else {
-		mode |= os.ModeSymlink
 		size, err = strconv.ParseUint(fi, 10, 64)
 		if err != nil {
 			return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's size: %s (%s)`, err, entry)}
