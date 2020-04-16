@@ -417,7 +417,7 @@ func parseWinLIST(entry string, loc *time.Location) (os.FileInfo, error) {
 
 	mtime, err := time.ParseInLocation("01-02-06 03:04PM", matches[1], loc)
 	if err != nil {
-		return nil, err
+		return nil, ftpError{err: err}
 	}
 
 	fi := matches[2]
