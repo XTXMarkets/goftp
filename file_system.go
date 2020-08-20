@@ -323,7 +323,7 @@ func (f *ftpFile) Sys() interface{} {
 
 var (
 	unixLsRegex = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
-	winLsRegex  = regexp.MustCompile(`^\s*(\d{2}-\d{2}-\d{2}\s*\d{2}:\d{2}(?:PM|AM))\s*(<DIR>|\d+)\s*(\S+)$`)
+	winLsRegex  = regexp.MustCompile(`^\s*(\d{2}-\d{2}-\d{2}\s*\d{2}:\d{2}(?:PM|AM))\s*(<DIR>|\d+)\s*(\S.*\S)|(\S)$`)
 )
 
 func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
